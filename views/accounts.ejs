@@ -1,9 +1,26 @@
-<h2>Accounts</h2>
+app.get('/accounts', async (req, res) => {
+  try {
+    if (!req.session.tokens) {
+      return res.redirect('/');
+    }
 
-<% accounts.forEach(a => { %>
-  <div>
-    <a href="/locations?account=<%= a.name %>">
-      <%= a.name %>
-    </a>
-  </div>
-<% }) %>
+    const client = createOAuthClient();
+    client.setCredentials(req.session.tokens);
+
+    const api = google.mybusinessaccountmanagement('v1');
+
+    const response = await api.accounts.list({ auth: client });
+
+    res.render('accounts', {
+      accounts: response.data.accounts || []
+    });
+
+  } catch (err) {
+    if (err.code === 429) {
+      return res.send("⚠️ Too many requests. Please wait 5 minutes.");
+    }
+
+    console.error("Accounts error:", err.message);
+    res.send("Error: " + err.message);
+  }
+});
