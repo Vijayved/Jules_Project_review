@@ -1,0 +1,9 @@
+<h2>Accounts</h2>
+
+<% accounts.forEach(a => { %>
+  <div>
+    <a href="/locations?account=<%= a.name %>">
+      <%= a.name %>
+    </a>
+  </div>
+<% }) %>
