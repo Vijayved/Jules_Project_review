@@ -1,0 +1,9 @@
+<h2>Locations</h2>
+
+<% locations.forEach(l => { %>
+  <div>
+    <a href="/reviews?location=<%= l.name %>">
+      <%= l.title %>
+    </a>
+  </div>
+<% }) %>
