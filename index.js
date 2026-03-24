@@ -11,8 +11,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-app.set('view engine', 'ejs');
-
 app.use(session({
   secret: process.env.SESSION_SECRET || 'secret',
   resave: false,
@@ -52,15 +50,13 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 🔥 STRONG RETRY
 async function retryRequest(fn, retries = 5) {
   try {
     return await fn();
   } catch (err) {
     if (retries <= 0) throw err;
-
     console.log("Retrying after delay...", err.message);
-    await sleep(5000); // 5 sec wait
+    await sleep(8000); // 🔥 increased delay
     return retryRequest(fn, retries - 1);
   }
 }
@@ -68,7 +64,11 @@ async function retryRequest(fn, retries = 5) {
 // ================= HOME =================
 app.get('/', (req, res) => {
   if (req.session.tokens) {
-    return res.send('<h2>System Ready ✅</h2><a href="/auto-reply-all">Run Auto Reply</a>');
+    return res.send(`
+      <h2>System Ready ✅</h2>
+      <a href="/auto-reply-all">Run Auto Reply</a><br><br>
+      <a href="/get-accounts">Get Account ID</a>
+    `);
   }
 
   const client = createOAuthClient();
@@ -93,7 +93,28 @@ app.get('/oauth2callback', async (req, res) => {
   }
 });
 
-// ================= AUTO SAFE SYSTEM =================
+// ================= GET ACCOUNT ID =================
+app.get('/get-accounts', async (req, res) => {
+  try {
+    if (!req.session.tokens) return res.redirect('/');
+
+    const client = createOAuthClient();
+    client.setCredentials(req.session.tokens);
+
+    const api = google.mybusinessaccountmanagement('v1');
+    const response = await api.accounts.list({ auth: client });
+
+    res.send(`
+      <h2>Accounts Found</h2>
+      <pre>${JSON.stringify(response.data.accounts, null, 2)}</pre>
+    `);
+
+  } catch (err) {
+    res.send("Error: " + err.message);
+  }
+});
+
+// ================= AUTO REPLY =================
 app.get('/auto-reply-all', async (req, res) => {
   try {
     if (!req.session.tokens) return res.redirect('/');
@@ -101,28 +122,17 @@ app.get('/auto-reply-all', async (req, res) => {
     const client = createOAuthClient();
     client.setCredentials(req.session.tokens);
 
-    const accountApi = google.mybusinessaccountmanagement('v1');
     const locationApi = google.mybusinessbusinessinformation('v1');
 
-    // 🔥 GET ACCOUNTS (SAFE)
-    const accountsRes = await retryRequest(() =>
-      accountApi.accounts.list({ auth: client })
-    );
-
-    const accounts = accountsRes.data.accounts || [];
-
-    if (accounts.length === 0) {
-      return res.send("No accounts found");
-    }
-
-    // 🔥 ONLY ONE ACCOUNT (SAFE MODE)
-    const acc = accounts[0];
+    // 🔥 HARDCODE ACCOUNT (PUT YOUR ID HERE)
+    const acc = {
+      name: "accounts/PUT_YOUR_ACCOUNT_ID_HERE"
+    };
 
     console.log("Processing Account:", acc.name);
 
-    await sleep(5000);
+    await sleep(8000);
 
-    // 🔥 GET LOCATIONS
     const locRes = await retryRequest(() =>
       locationApi.accounts.locations.list({
         parent: acc.name,
@@ -153,10 +163,7 @@ app.get('/auto-reply-all', async (req, res) => {
         const reviewDate = new Date(r.createTime);
         const diffDays = (now - reviewDate) / (1000 * 60 * 60 * 24);
 
-        // last 5 days
         if (diffDays > 5) continue;
-
-        // skip replied
         if (r.reviewReply) continue;
 
         const star = r.starRating || 5;
@@ -173,11 +180,9 @@ app.get('/auto-reply-all', async (req, res) => {
         totalReplies++;
         console.log("Replied:", r.name);
 
-        // 🔥 SAFE DELAY
         await sleep(3000);
       }
 
-      // 🔥 LOCATION GAP
       await sleep(5000);
     }
 
