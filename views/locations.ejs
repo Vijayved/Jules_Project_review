@@ -1,9 +1,27 @@
-<h2>Locations</h2>
+app.get('/locations', async (req, res) => {
+  try {
+    if (!req.session.tokens) {
+      return res.redirect('/');
+    }
 
-<% locations.forEach(l => { %>
-  <div>
-    <a href="/reviews?location=<%= l.name %>">
-      <%= l.title %>
-    </a>
-  </div>
-<% }) %>
+    const client = createOAuthClient();
+    client.setCredentials(req.session.tokens);
+
+    const api = google.mybusinessbusinessinformation('v1');
+
+    const response = await api.accounts.locations.list({
+      parent: req.query.account,
+      readMask: 'name,title',
+      auth: client
+    });
+
+    res.render('locations', {
+      locations: response.data.locations || [],
+      account: req.query.account
+    });
+
+  } catch (err) {
+    console.error("Locations error:", err.message);
+    res.send("Error: " + err.message);
+  }
+});
