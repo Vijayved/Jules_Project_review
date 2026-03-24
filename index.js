@@ -19,7 +19,7 @@ app.use(session({
   saveUninitialized: false
 }));
 
-// ================= GOOGLE CLIENT =================
+// ================= GOOGLE =================
 function createOAuthClient() {
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
@@ -40,7 +40,6 @@ const replies = {
 };
 
 let counter = 0;
-
 function getReply(star) {
   const arr = replies[star] || replies[5];
   const reply = arr[counter % arr.length];
@@ -53,13 +52,15 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function retryRequest(fn, retries = 3) {
+// 🔥 STRONG RETRY
+async function retryRequest(fn, retries = 5) {
   try {
     return await fn();
   } catch (err) {
     if (retries <= 0) throw err;
-    console.log("Retrying...", err.message);
-    await sleep(2000);
+
+    console.log("Retrying after delay...", err.message);
+    await sleep(5000); // 5 sec wait
     return retryRequest(fn, retries - 1);
   }
 }
@@ -67,7 +68,7 @@ async function retryRequest(fn, retries = 3) {
 // ================= HOME =================
 app.get('/', (req, res) => {
   if (req.session.tokens) {
-    return res.render('index', { auth: true });
+    return res.send('<h2>System Ready ✅</h2><a href="/auto-reply-all">Run Auto Reply</a>');
   }
 
   const client = createOAuthClient();
@@ -77,7 +78,7 @@ app.get('/', (req, res) => {
     prompt: 'consent'
   });
 
-  res.render('index', { auth: false, url });
+  res.send(`<a href="${url}">Login with Google</a>`);
 });
 
 // ================= CALLBACK =================
@@ -88,12 +89,11 @@ app.get('/oauth2callback', async (req, res) => {
     req.session.tokens = tokens;
     res.redirect('/');
   } catch (err) {
-    console.error(err);
     res.send('Auth Error');
   }
 });
 
-// ================= AUTO MULTI REPLY =================
+// ================= AUTO SAFE SYSTEM =================
 app.get('/auto-reply-all', async (req, res) => {
   try {
     if (!req.session.tokens) return res.redirect('/');
@@ -104,75 +104,80 @@ app.get('/auto-reply-all', async (req, res) => {
     const accountApi = google.mybusinessaccountmanagement('v1');
     const locationApi = google.mybusinessbusinessinformation('v1');
 
+    // 🔥 GET ACCOUNTS (SAFE)
     const accountsRes = await retryRequest(() =>
       accountApi.accounts.list({ auth: client })
     );
 
     const accounts = accountsRes.data.accounts || [];
 
+    if (accounts.length === 0) {
+      return res.send("No accounts found");
+    }
+
+    // 🔥 ONLY ONE ACCOUNT (SAFE MODE)
+    const acc = accounts[0];
+
+    console.log("Processing Account:", acc.name);
+
+    await sleep(5000);
+
+    // 🔥 GET LOCATIONS
+    const locRes = await retryRequest(() =>
+      locationApi.accounts.locations.list({
+        parent: acc.name,
+        readMask: 'name,title',
+        auth: client
+      })
+    );
+
+    const locations = locRes.data.locations || [];
+
     let totalReplies = 0;
     const now = new Date();
 
-    for (let acc of accounts) {
+    for (let loc of locations) {
 
-      console.log("Processing Account:", acc.name);
+      console.log("Processing Location:", loc.title);
 
-      const locRes = await retryRequest(() =>
-        locationApi.accounts.locations.list({
-          parent: acc.name,
-          readMask: 'name,title',
-          auth: client
+      const reviewsRes = await retryRequest(() =>
+        client.request({
+          url: `https://mybusiness.googleapis.com/v4/${loc.name}/reviews`
         })
       );
 
-      const locations = locRes.data.locations || [];
+      const reviews = reviewsRes.data.reviews || [];
 
-      for (let loc of locations) {
+      for (let r of reviews) {
 
-        console.log("Processing Location:", loc.title);
+        const reviewDate = new Date(r.createTime);
+        const diffDays = (now - reviewDate) / (1000 * 60 * 60 * 24);
 
-        const reviewsRes = await retryRequest(() =>
+        // last 5 days
+        if (diffDays > 5) continue;
+
+        // skip replied
+        if (r.reviewReply) continue;
+
+        const star = r.starRating || 5;
+        const comment = getReply(star);
+
+        await retryRequest(() =>
           client.request({
-            url: `https://mybusiness.googleapis.com/v4/${loc.name}/reviews`
+            url: `https://mybusiness.googleapis.com/v4/${r.name}/reply`,
+            method: 'PUT',
+            data: { comment }
           })
         );
 
-        const reviews = reviewsRes.data.reviews || [];
+        totalReplies++;
+        console.log("Replied:", r.name);
 
-        for (let r of reviews) {
-
-          const reviewDate = new Date(r.createTime);
-          const diffDays = (now - reviewDate) / (1000 * 60 * 60 * 24);
-
-          // last 5 days only
-          if (diffDays > 5) continue;
-
-          // skip already replied
-          if (r.reviewReply) continue;
-
-          const star = r.starRating || 5;
-          const comment = getReply(star);
-
-          await retryRequest(() =>
-            client.request({
-              url: `https://mybusiness.googleapis.com/v4/${r.name}/reply`,
-              method: 'PUT',
-              data: { comment }
-            })
-          );
-
-          totalReplies++;
-          console.log("Replied:", r.name);
-
-          // 🔥 delay between replies
-          await sleep(1500);
-        }
-
-        // gap between locations
+        // 🔥 SAFE DELAY
         await sleep(3000);
       }
 
-      // gap between accounts
+      // 🔥 LOCATION GAP
       await sleep(5000);
     }
 
