@@ -19,6 +19,7 @@ app.use(session({
   saveUninitialized: false
 }));
 
+// ================= GOOGLE CLIENT =================
 function createOAuthClient() {
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
@@ -39,11 +40,28 @@ const replies = {
 };
 
 let counter = 0;
+
 function getReply(star) {
   const arr = replies[star] || replies[5];
   const reply = arr[counter % arr.length];
   counter++;
   return reply;
+}
+
+// ================= HELPERS =================
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function retryRequest(fn, retries = 3) {
+  try {
+    return await fn();
+  } catch (err) {
+    if (retries <= 0) throw err;
+    console.log("Retrying...", err.message);
+    await sleep(2000);
+    return retryRequest(fn, retries - 1);
+  }
 }
 
 // ================= HOME =================
@@ -70,6 +88,7 @@ app.get('/oauth2callback', async (req, res) => {
     req.session.tokens = tokens;
     res.redirect('/');
   } catch (err) {
+    console.error(err);
     res.send('Auth Error');
   }
 });
@@ -85,7 +104,10 @@ app.get('/auto-reply-all', async (req, res) => {
     const accountApi = google.mybusinessaccountmanagement('v1');
     const locationApi = google.mybusinessbusinessinformation('v1');
 
-    const accountsRes = await accountApi.accounts.list({ auth: client });
+    const accountsRes = await retryRequest(() =>
+      accountApi.accounts.list({ auth: client })
+    );
+
     const accounts = accountsRes.data.accounts || [];
 
     let totalReplies = 0;
@@ -93,19 +115,27 @@ app.get('/auto-reply-all', async (req, res) => {
 
     for (let acc of accounts) {
 
-      const locRes = await locationApi.accounts.locations.list({
-        parent: acc.name,
-        readMask: 'name,title',
-        auth: client
-      });
+      console.log("Processing Account:", acc.name);
+
+      const locRes = await retryRequest(() =>
+        locationApi.accounts.locations.list({
+          parent: acc.name,
+          readMask: 'name,title',
+          auth: client
+        })
+      );
 
       const locations = locRes.data.locations || [];
 
       for (let loc of locations) {
 
-        const reviewsRes = await client.request({
-          url: `https://mybusiness.googleapis.com/v4/${loc.name}/reviews`
-        });
+        console.log("Processing Location:", loc.title);
+
+        const reviewsRes = await retryRequest(() =>
+          client.request({
+            url: `https://mybusiness.googleapis.com/v4/${loc.name}/reviews`
+          })
+        );
 
         const reviews = reviewsRes.data.reviews || [];
 
@@ -114,31 +144,42 @@ app.get('/auto-reply-all', async (req, res) => {
           const reviewDate = new Date(r.createTime);
           const diffDays = (now - reviewDate) / (1000 * 60 * 60 * 24);
 
-          // ✅ last 5 days only
+          // last 5 days only
           if (diffDays > 5) continue;
 
-          // ✅ skip already replied
+          // skip already replied
           if (r.reviewReply) continue;
 
           const star = r.starRating || 5;
           const comment = getReply(star);
 
-          await client.request({
-            url: `https://mybusiness.googleapis.com/v4/${r.name}/reply`,
-            method: 'PUT',
-            data: { comment }
-          });
+          await retryRequest(() =>
+            client.request({
+              url: `https://mybusiness.googleapis.com/v4/${r.name}/reply`,
+              method: 'PUT',
+              data: { comment }
+            })
+          );
 
           totalReplies++;
           console.log("Replied:", r.name);
+
+          // 🔥 delay between replies
+          await sleep(1500);
         }
+
+        // gap between locations
+        await sleep(3000);
       }
+
+      // gap between accounts
+      await sleep(5000);
     }
 
-    res.send(`✅ Done! Total replies sent: ${totalReplies}`);
+    res.send(`✅ Done safely! Total replies: ${totalReplies}`);
 
   } catch (err) {
-    console.error(err);
+    console.error("AUTO ERROR:", err.message);
     res.send("Error: " + err.message);
   }
 });
