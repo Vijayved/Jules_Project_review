@@ -51,13 +51,20 @@ function sleep(ms) {
 }
 
 async function retryRequest(fn, retries = 5) {
-  try {
-    return await fn();
-  } catch (err) {
-    if (retries <= 0) throw err;
-    console.log("Retrying after delay...", err.message);
-    await sleep(8000); // 🔥 increased delay
-    return retryRequest(fn, retries - 1);
+  let delay = 2000;
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err.message.includes("Quota exceeded")) {
+        console.log(`Retry ${i + 1} after ${delay}ms`);
+        await sleep(delay);
+        delay *= 2; // exponential
+      } else {
+        throw err;
+      }
+    }
   }
 }
 
