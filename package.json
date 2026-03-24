@@ -5,6 +5,9 @@
   "scripts": {
     "start": "node index.js"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "cookie-parser": "^1.4.6",
     "dotenv": "^17.3.1",
