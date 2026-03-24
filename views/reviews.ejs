@@ -1,15 +1,22 @@
-<h2>Reviews</h2>
+app.get('/reviews', async (req, res) => {
+  try {
+    if (!req.session.tokens) {
+      return res.redirect('/');
+    }
 
-<% reviews.forEach(r => { %>
-  <div style="border:1px solid #ccc; padding:10px; margin:10px;">
-    <p><%= r.comment %></p>
+    const client = createOAuthClient();
+    client.setCredentials(req.session.tokens);
 
-    <form method="POST" action="/reply">
-      <input type="hidden" name="review" value="<%= r.name %>" />
-      <input type="hidden" name="location" value="<%= location %>" />
+    const url = `https://mybusiness.googleapis.com/v4/${req.query.location}/reviews`;
+    const response = await client.request({ url });
 
-      <input type="text" name="comment" placeholder="Reply..." required />
-      <button type="submit">Reply</button>
-    </form>
-  </div>
-<% }) %>
+    res.render('reviews', {
+      reviews: response.data.reviews || [],
+      location: req.query.location
+    });
+
+  } catch (err) {
+    console.error("Reviews error:", err.message);
+    res.send("Error: " + err.message);
+  }
+});
