@@ -29,7 +29,7 @@ function createOAuthClient() {
 
 const SCOPES = ['https://www.googleapis.com/auth/business.manage'];
 
-// Home
+// ================= HOME =================
 app.get('/', (req, res) => {
   if (req.session.tokens) {
     return res.render('index', { auth: true });
@@ -45,7 +45,7 @@ app.get('/', (req, res) => {
   res.render('index', { auth: false, url });
 });
 
-// OAuth callback
+// ================= CALLBACK =================
 app.get('/oauth2callback', async (req, res) => {
   try {
     const client = createOAuthClient();
@@ -58,9 +58,13 @@ app.get('/oauth2callback', async (req, res) => {
   }
 });
 
-// ✅ FIXED ACCOUNTS (with rate limit handling)
+// ================= ACCOUNTS =================
 app.get('/accounts', async (req, res) => {
   try {
+    if (!req.session.tokens) {
+      return res.redirect('/');
+    }
+
     const client = createOAuthClient();
     client.setCredentials(req.session.tokens);
 
@@ -74,17 +78,21 @@ app.get('/accounts', async (req, res) => {
 
   } catch (err) {
     if (err.code === 429) {
-      return res.send("⚠️ Too many requests. Please wait 5 minutes and try again.");
+      return res.send("⚠️ Too many requests. Wait 5 minutes.");
     }
 
     console.error("Accounts error:", err.message);
-    res.send("Error fetching accounts: " + err.message);
+    res.send("Error: " + err.message);
   }
 });
 
-// Locations
+// ================= LOCATIONS =================
 app.get('/locations', async (req, res) => {
   try {
+    if (!req.session.tokens) {
+      return res.redirect('/');
+    }
+
     const client = createOAuthClient();
     client.setCredentials(req.session.tokens);
 
@@ -103,17 +111,22 @@ app.get('/locations', async (req, res) => {
 
   } catch (err) {
     console.error("Locations error:", err.message);
-    res.send("Error fetching locations: " + err.message);
+    res.send("Error: " + err.message);
   }
 });
 
-// Reviews
+// ================= REVIEWS =================
 app.get('/reviews', async (req, res) => {
   try {
+    if (!req.session.tokens) {
+      return res.redirect('/');
+    }
+
     const client = createOAuthClient();
     client.setCredentials(req.session.tokens);
 
     const url = `https://mybusiness.googleapis.com/v4/${req.query.location}/reviews`;
+
     const response = await client.request({ url });
 
     res.render('reviews', {
@@ -123,13 +136,17 @@ app.get('/reviews', async (req, res) => {
 
   } catch (err) {
     console.error("Reviews error:", err.message);
-    res.send("Error fetching reviews: " + err.message);
+    res.send("Error: " + err.message);
   }
 });
 
-// Reply
+// ================= REPLY =================
 app.post('/reply', async (req, res) => {
   try {
+    if (!req.session.tokens) {
+      return res.redirect('/');
+    }
+
     const client = createOAuthClient();
     client.setCredentials(req.session.tokens);
 
@@ -147,6 +164,7 @@ app.post('/reply', async (req, res) => {
   }
 });
 
+// ================= START SERVER =================
 app.listen(port, () => {
   console.log(`Server running on ${port}`);
 });
