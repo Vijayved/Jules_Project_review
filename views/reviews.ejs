@@ -1,0 +1,15 @@
+<h2>Reviews</h2>
+
+<% reviews.forEach(r => { %>
+  <div style="border:1px solid #ccc; padding:10px; margin:10px;">
+    <p><%= r.comment %></p>
+
+    <form method="POST" action="/reply">
+      <input type="hidden" name="review" value="<%= r.name %>" />
+      <input type="hidden" name="location" value="<%= location %>" />
+
+      <input type="text" name="comment" placeholder="Reply..." required />
+      <button type="submit">Reply</button>
+    </form>
+  </div>
+<% }) %>
